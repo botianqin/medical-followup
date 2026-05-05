@@ -1,0 +1,458 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes">
+    <title>医护随访系统</title>
+    <style>
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+        body {
+            font-family: system-ui, -apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+            background: #f0f2f5;
+            padding: 16px;
+        }
+        .container {
+            max-width: 600px;
+            margin: 0 auto;
+            background: white;
+            border-radius: 24px;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+            overflow: hidden;
+            min-height: 80vh;
+        }
+        /* 医护端蓝调 */
+        .doctor-theme {
+            background: #e6f2ff;
+        }
+        /* 患者端绿调 */
+        .patient-theme {
+            background: #e0f5e9;
+        }
+        .header {
+            padding: 20px;
+            font-size: 24px;
+            font-weight: bold;
+            border-bottom: 1px solid rgba(0,0,0,0.05);
+        }
+        .content {
+            padding: 20px;
+        }
+        button, .btn {
+            background: #2c7da0;
+            color: white;
+            border: none;
+            padding: 10px 16px;
+            border-radius: 40px;
+            font-size: 14px;
+            cursor: pointer;
+            margin: 4px 0;
+            width: 100%;
+        }
+        button.secondary {
+            background: #a9d6e5;
+            color: #01497c;
+        }
+        input, textarea, select {
+            width: 100%;
+            padding: 10px;
+            margin: 8px 0;
+            border: 1px solid #ccc;
+            border-radius: 12px;
+            font-size: 14px;
+        }
+        .patient-card, .question-item {
+            background: white;
+            padding: 12px;
+            border-radius: 16px;
+            margin-bottom: 12px;
+            box-shadow: 0 1px 2px rgba(0,0,0,0.05);
+        }
+        .flex {
+            display: flex;
+            gap: 8px;
+            align-items: center;
+            flex-wrap: wrap;
+        }
+        .mic-btn {
+            background: #1e6091;
+            font-size: 20px;
+            width: auto;
+            padding: 8px 12px;
+        }
+        .question-text {
+            font-weight: 500;
+            margin-bottom: 8px;
+        }
+        .options {
+            margin: 8px 0;
+            display: flex;
+            gap: 12px;
+        }
+        hr {
+            margin: 16px 0;
+        }
+        .bg-warning {
+            background: #fff3cd;
+            padding: 8px;
+            border-radius: 12px;
+        }
+    </style>
+</head>
+<body>
+<div class="container" id="appRoot"></div>
+
+<script>
+    // ---------- 初始化数据 ----------
+    let patients = [
+        { id: "111111", name: "张三", questionnaires: [{ id: "q1", title: "基线问卷", questions: [
+            { type: "text", text: "您今天的血压是多少？", answer: null },
+            { type: "radio", text: "今天是否按时服药？", options: ["是","否"], answer: null }
+        ]}]},
+        { id: "222222", name: "李四", questionnaires: [{ id: "q1", title: "基线问卷", questions: [
+            { type: "text", text: "您今天的血糖值？", answer: null },
+            { type: "radio", text: "有无不适症状？", options: ["无","头晕","恶心"], answer: null }
+        ]}]}
+    ];
+    let currentUser = null; // { role, id?, name? }
+    let currentPatientId = null; // 医护端当前查看的患者
+
+    // 存储到 localStorage
+    function saveData() {
+        localStorage.setItem("followup_patients", JSON.stringify(patients));
+    }
+    function loadData() {
+        let data = localStorage.getItem("followup_patients");
+        if (data) patients = JSON.parse(data);
+    }
+    loadData();
+
+    // 辅助：获取患者
+    function getPatient(pid) {
+        return patients.find(p => p.id === pid);
+    }
+
+    // 渲染入口
+    function render() {
+        const root = document.getElementById("appRoot");
+        if (!currentUser) {
+            root.innerHTML = renderLogin();
+            attachLoginEvents();
+        } else if (currentUser.role === "doctor") {
+            root.className = "doctor-theme";
+            if (currentPatientId) {
+                root.innerHTML = renderPatientFolder(currentPatientId);
+                attachFolderEvents(currentPatientId);
+            } else {
+                root.innerHTML = renderPatientList();
+                attachPatientListEvents();
+            }
+        } else if (currentUser.role === "patient") {
+            root.className = "patient-theme";
+            root.innerHTML = renderPatientQuestionnaires(currentUser.id);
+            attachPatientEvents(currentUser.id);
+        }
+    }
+
+    // 登录界面
+    function renderLogin() {
+        return `
+            <div class="header">医疗随访系统</div>
+            <div class="content">
+                <button id="doctorLoginBtn" class="btn">医护登录</button>
+                <button id="patientLoginBtn" class="btn secondary">患者登录</button>
+                <div id="loginPanel" style="margin-top:20px;"></div>
+            </div>
+        `;
+    }
+    function attachLoginEvents() {
+        document.getElementById("doctorLoginBtn")?.addEventListener("click", () => {
+            document.getElementById("loginPanel").innerHTML = `
+                <input type="text" id="doctorEmail" placeholder="doctor@med.com" value="doctor@med.com">
+                <input type="password" id="doctorPwd" placeholder="密码" value="123456">
+                <button id="submitDoctorLogin">登录</button>
+            `;
+            document.getElementById("submitDoctorLogin")?.addEventListener("click", () => {
+                let email = document.getElementById("doctorEmail").value;
+                let pwd = document.getElementById("doctorPwd").value;
+                if (email === "doctor@med.com" && pwd === "123456") {
+                    currentUser = { role: "doctor" };
+                    currentPatientId = null;
+                    render();
+                } else {
+                    alert("账号或密码错误");
+                }
+            });
+        });
+        document.getElementById("patientLoginBtn")?.addEventListener("click", () => {
+            document.getElementById("loginPanel").innerHTML = `
+                <input type="text" id="patientId" placeholder="身份证后6位">
+                <button id="submitPatientLogin">登录</button>
+            `;
+            document.getElementById("submitPatientLogin")?.addEventListener("click", () => {
+                let pid = document.getElementById("patientId").value;
+                let patient = patients.find(p => p.id === pid);
+                if (patient) {
+                    currentUser = { role: "patient", id: pid, name: patient.name };
+                    render();
+                } else {
+                    alert("患者不存在");
+                }
+            });
+        });
+    }
+
+    // 医护端：患者列表
+    function renderPatientList() {
+        let html = `<div class="header">👩‍⚕️ 医护端 - 患者文件夹</div><div class="content">`;
+        patients.forEach(p => {
+            html += `<div class="patient-card" data-id="${p.id}">
+                        <strong>${p.name}</strong> (ID: ${p.id})
+                        <button class="open-folder-btn" data-id="${p.id}">打开文件夹</button>
+                     </div>`;
+        });
+        html += `<hr><button id="logoutBtn">退出登录</button></div>`;
+        return html;
+    }
+    function attachPatientListEvents() {
+        document.querySelectorAll(".open-folder-btn").forEach(btn => {
+            btn.addEventListener("click", (e) => {
+                let id = btn.getAttribute("data-id");
+                currentPatientId = id;
+                render();
+            });
+        });
+        document.getElementById("logoutBtn")?.addEventListener("click", () => {
+            currentUser = null;
+            currentPatientId = null;
+            render();
+        });
+    }
+
+    // 医护端：单个患者文件夹内（问卷管理）
+    function renderPatientFolder(pid) {
+        let patient = getPatient(pid);
+        if (!patient) return "<div>患者不存在</div>";
+        let html = `<div class="header">📁 ${patient.name} 的文件夹</div><div class="content">`;
+        html += `<button id="backToListBtn">← 返回患者列表</button>`;
+        // 显示已有问卷列表
+        patient.questionnaires.forEach((q, idx) => {
+            html += `<div class="patient-card">
+                        <strong>📋 ${q.title}</strong>
+                        <button class="edit-questionnaire-btn" data-idx="${idx}">✏️ 编辑问卷</button>
+                        <button class="delete-questionnaire-btn" data-idx="${idx}">🗑️ 删除问卷</button>
+                        <div style="margin-top:8px;">问题数量: ${q.questions.length}</div>
+                     </div>`;
+        });
+        html += `<button id="addQuestionnaireBtn">+ 新增问卷</button>`;
+        // 展示当前编辑的问卷（如果有）
+        if (window._editingQuestionnaireIdx !== undefined) {
+            let q = patient.questionnaires[window._editingQuestionnaireIdx];
+            html += `<div class="bg-warning" style="margin-top:16px;"><strong>编辑问卷：${q.title}</strong>`;
+            q.questions.forEach((qu, qi) => {
+                html += `<div class="question-item">
+                            <div>问题${qi+1}: ${qu.text} (${qu.type === "text" ? "文本题" : "选择题"})</div>
+                            <button class="edit-question-btn" data-qidx="${qi}">编辑</button>
+                            <button class="delete-question-btn" data-qidx="${qi}">删除</button>
+                         </div>`;
+            });
+            html += `<button id="addQuestionBtn">+ 添加问题</button>
+                     <button id="finishEditBtn">完成编辑</button>
+                     </div>`;
+        }
+        html += `<hr><button id="logoutBtn">退出登录</button></div>`;
+        return html;
+    }
+    function attachFolderEvents(pid) {
+        document.getElementById("backToListBtn")?.addEventListener("click", () => {
+            currentPatientId = null;
+            render();
+        });
+        document.querySelectorAll(".edit-questionnaire-btn").forEach(btn => {
+            btn.addEventListener("click", (e) => {
+                let idx = parseInt(btn.getAttribute("data-idx"));
+                window._editingQuestionnaireIdx = idx;
+                render();
+            });
+        });
+        document.querySelectorAll(".delete-questionnaire-btn").forEach(btn => {
+            btn.addEventListener("click", (e) => {
+                let idx = parseInt(btn.getAttribute("data-idx"));
+                if (confirm("删除问卷？")) {
+                    let patient = getPatient(pid);
+                    patient.questionnaires.splice(idx, 1);
+                    saveData();
+                    render();
+                }
+            });
+        });
+        document.getElementById("addQuestionnaireBtn")?.addEventListener("click", () => {
+            let title = prompt("问卷标题", "新问卷");
+            if (title) {
+                let patient = getPatient(pid);
+                patient.questionnaires.push({ id: "q"+Date.now(), title: title, questions: [] });
+                saveData();
+                render();
+            }
+        });
+        document.getElementById("addQuestionBtn")?.addEventListener("click", () => {
+            let type = prompt("问题类型 (text/radio)", "text");
+            let text = prompt("问题内容");
+            if (text) {
+                let patient = getPatient(pid);
+                let q = patient.questionnaires[window._editingQuestionnaireIdx];
+                let opts = null;
+                if (type === "radio") {
+                    let optsStr = prompt("选项用逗号隔开, 例如: 是,否", "是,否");
+                    opts = optsStr ? optsStr.split(",") : [];
+                }
+                q.questions.push({ type: type, text: text, options: opts, answer: null });
+                saveData();
+                render();
+            }
+        });
+        document.querySelectorAll(".edit-question-btn").forEach(btn => {
+            btn.addEventListener("click", (e) => {
+                let qidx = parseInt(btn.getAttribute("data-qidx"));
+                let patient = getPatient(pid);
+                let q = patient.questionnaires[window._editingQuestionnaireIdx].questions[qidx];
+                let newText = prompt("修改问题文本", q.text);
+                if (newText) q.text = newText;
+                if (q.type === "radio") {
+                    let newOpts = prompt("修改选项(逗号隔开)", q.options.join(","));
+                    if (newOpts) q.options = newOpts.split(",");
+                }
+                saveData();
+                render();
+            });
+        });
+        document.querySelectorAll(".delete-question-btn").forEach(btn => {
+            btn.addEventListener("click", (e) => {
+                let qidx = parseInt(btn.getAttribute("data-qidx"));
+                if (confirm("删除问题？")) {
+                    let patient = getPatient(pid);
+                    patient.questionnaires[window._editingQuestionnaireIdx].questions.splice(qidx, 1);
+                    saveData();
+                    render();
+                }
+            });
+        });
+        document.getElementById("finishEditBtn")?.addEventListener("click", () => {
+            window._editingQuestionnaireIdx = undefined;
+            render();
+        });
+        document.getElementById("logoutBtn")?.addEventListener("click", () => {
+            currentUser = null;
+            currentPatientId = null;
+            window._editingQuestionnaireIdx = undefined;
+            render();
+        });
+    }
+
+    // 患者端：显示自己的问卷列表
+    function renderPatientQuestionnaires(pid) {
+        let patient = getPatient(pid);
+        if (!patient) return "<div>患者不存在</div>";
+        let html = `<div class="header">🌿 欢迎, ${patient.name}</div><div class="content">`;
+        patient.questionnaires.forEach((q, qi) => {
+            html += `<div class="patient-card">
+                        <strong>${q.title}</strong>
+                        <button class="answer-questionnaire-btn" data-qidx="${qi}">填写问卷</button>
+                     </div>`;
+        });
+        html += `<hr><button id="logoutBtn">退出登录</button></div>`;
+        return html;
+    }
+    function attachPatientEvents(pid) {
+        document.querySelectorAll(".answer-questionnaire-btn").forEach(btn => {
+            btn.addEventListener("click", (e) => {
+                let qidx = parseInt(btn.getAttribute("data-qidx"));
+                showQuestionnaireForm(pid, qidx);
+            });
+        });
+        document.getElementById("logoutBtn")?.addEventListener("click", () => {
+            currentUser = null;
+            render();
+        });
+    }
+
+    // 显示问卷答题界面（带录音转文字）
+    function showQuestionnaireForm(pid, qidx) {
+        let patient = getPatient(pid);
+        let q = patient.questionnaires[qidx];
+        let answers = q.questions.map(qq => qq.answer || "");
+        let html = `<div class="header">📝 ${q.title}</div><div class="content">`;
+        q.questions.forEach((qu, i) => {
+            html += `<div class="question-item">
+                        <div class="question-text">${qu.text}</div>`;
+            if (qu.type === "text") {
+                html += `<textarea id="ans_${i}" placeholder="输入答案">${answers[i] || ""}</textarea>
+                        <button class="mic-btn" data-idx="${i}">🎤 录音转文字</button>`;
+            } else if (qu.type === "radio") {
+                let optsHtml = `<div class="options">`;
+                qu.options.forEach(opt => {
+                    let checked = (answers[i] === opt) ? "checked" : "";
+                    optsHtml += `<label><input type="radio" name="radio_${i}" value="${opt}" ${checked}> ${opt}</label>`;
+                });
+                optsHtml += `</div>`;
+                html += optsHtml;
+            }
+            html += `</div>`;
+        });
+        html += `<button id="submitAnswersBtn">提交答案</button>
+                <button id="cancelBtn">返回</button></div>`;
+        document.getElementById("appRoot").innerHTML = `<div class="container ${currentUser.role === 'patient' ? 'patient-theme' : ''}">${html}</div>`;
+        // 绑定录音
+        document.querySelectorAll(".mic-btn").forEach(btn => {
+            btn.addEventListener("click", async (e) => {
+                let idx = parseInt(btn.getAttribute("data-idx"));
+                if (!window.webkitSpeechRecognition && !window.SpeechRecognition) {
+                    alert("浏览器不支持语音识别");
+                    return;
+                }
+                const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+                const recognition = new SpeechRecognition();
+                recognition.lang = "zh-CN";
+                recognition.interimResults = false;
+                recognition.start();
+                btn.textContent = "🎤 请说话...";
+                recognition.onresult = (event) => {
+                    let transcript = event.results[0][0].transcript;
+                    let textarea = document.getElementById(`ans_${idx}`);
+                    if (textarea) textarea.value = transcript;
+                    btn.textContent = "🎤 录音转文字";
+                };
+                recognition.onerror = () => {
+                    btn.textContent = "🎤 重试";
+                    alert("录音失败，请检查麦克风权限");
+                };
+            });
+        });
+        document.getElementById("submitAnswersBtn")?.addEventListener("click", () => {
+            // 收集答案
+            q.questions.forEach((qu, i) => {
+                if (qu.type === "text") {
+                    let textarea = document.getElementById(`ans_${i}`);
+                    if (textarea) qu.answer = textarea.value;
+                } else if (qu.type === "radio") {
+                    let selected = document.querySelector(`input[name="radio_${i}"]:checked`);
+                    qu.answer = selected ? selected.value : "";
+                }
+            });
+            saveData();
+            alert("答案已提交");
+            render(); // 返回患者主界面
+        });
+        document.getElementById("cancelBtn")?.addEventListener("click", () => {
+            render();
+        });
+    }
+
+    // 启动
+    render();
+</script>
+</body>
+</html>
